@@ -1,11 +1,23 @@
 #!/usr/bin/env bash -e
 
 debian_release() {
-  cat /etc/debian_version | cut -d '.' -f1
+  if [ -f /etc/debian_version ]; then
+    cut -d '.' -f1 /etc/debian_version
+  fi
+}
+
+os_bit() {
+  if command -v getconf >/dev/null 2>&1; then
+    getconf LONG_BIT
+  elif [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "x86_64" ]; then
+    echo "64"
+  else
+    echo "32"
+  fi
 }
 
 debian_variant() {
-  echo $( board_id ).debian.$( debian_release ).$( getconf LONG_BIT )-bit
+  echo $( board_id ).debian.$( debian_release ).$( os_bit )-bit
 }
 
 precompiled_dir() {
@@ -18,7 +30,13 @@ precompiled_dir() {
 
   local current_ver bit board prefix suffix
   current_ver=$( debian_release )
-  bit=$( getconf LONG_BIT )-bit
+  case "${current_ver}" in
+    ''|*[!0-9]*)
+      echo "${exact}"
+      return
+      ;;
+  esac
+  bit=$( os_bit )-bit
   board=$( board_id )
   prefix="${board}.debian."
   suffix=".${bit}"

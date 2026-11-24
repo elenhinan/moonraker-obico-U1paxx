@@ -18,7 +18,7 @@ host = 127.0.0.1
 port = 7125
 
 [webcam]
-snapshot_url = http://127.0.0.1:8080/webcam/snapshot.jpg
+snapshot_url = http://127.0.0.1/webcam/snapshot.jpg
 stream_url = rtsp://127.0.0.1:8554/stream
 stream_mode = h264_rtsp
 disable_video_streaming = False
@@ -42,7 +42,7 @@ class H264RtspTests(unittest.TestCase):
         config.load_from_config_file()
         return config, temp_dir.name
 
-    def test_h264_rtsp_uses_config_stream_url_and_allocates_dataport(self):
+    def test_h264_rtsp_uses_ffmpeg_rtp_repacketizer_and_allocates_ports(self):
         config, temp_dir = self._load_config(RTSP_CONFIG)
         app_model = SimpleNamespace(
             printer_state=None,
@@ -61,7 +61,9 @@ class H264RtspTests(unittest.TestCase):
         webcam = streamer.webcams[0]
         self.assertEqual('h264_rtsp', webcam.streaming_params['mode'])
         self.assertEqual(1, webcam.runtime['stream_id'])
-        self.assertEqual(JANUS_ADMIN_WS_PORT + 1, webcam.runtime['dataport'])
+        self.assertEqual(JANUS_ADMIN_WS_PORT + 1, webcam.runtime['videoport'])
+        self.assertEqual(JANUS_ADMIN_WS_PORT + 2, webcam.runtime['videortcpport'])
+        self.assertEqual(JANUS_ADMIN_WS_PORT + 3, webcam.runtime['dataport'])
 
         with patch.object(janus_config_builder, 'RUNTIME_JANUS_ETC_DIR', temp_dir):
             janus_config_builder.build_janus_plugin_streaming_jcfg(streamer.webcams)
@@ -70,10 +72,20 @@ class H264RtspTests(unittest.TestCase):
         with open(jcfg_path) as f:
             contents = f.read()
 
-        self.assertIn('type = "rtsp"', contents)
+        self.assertIn('type = "rtp"', contents)
         self.assertIn('id = 1', contents)
-        self.assertIn('url = "rtsp://127.0.0.1:8554/stream"', contents)
-        self.assertIn(f'dataport = {JANUS_ADMIN_WS_PORT + 1}', contents)
+        self.assertIn(f'videoport =  {JANUS_ADMIN_WS_PORT + 1}', contents)
+        self.assertIn(f'videortcpport = {JANUS_ADMIN_WS_PORT + 2}', contents)
+        self.assertIn(f'dataport = {JANUS_ADMIN_WS_PORT + 3}', contents)
+
+        with patch.object(streamer, 'start_ffmpeg') as mock_start_ffmpeg:
+            streamer.h264_rtsp(webcam)
+            mock_start_ffmpeg.assert_called_once_with(
+                JANUS_ADMIN_WS_PORT + 1,
+                '-rtsp_transport tcp -fflags nobuffer -flags low_delay -i rtsp://127.0.0.1:8554/stream -c:v copy',
+                retry_after_quit=True,
+                pkt_size=1200,
+            )
 
     def test_h264_rtsp_missing_stream_url_raises(self):
         with tempfile.TemporaryDirectory() as temp_dir:

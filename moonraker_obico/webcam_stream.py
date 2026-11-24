@@ -147,7 +147,7 @@ class WebcamStreamer:
 
             for webcam in self.webcams:
                 if webcam.streaming_params['mode'] == 'h264_rtsp':
-                    continue    # No extra process is needed when the mode is 'h264_rtsp'
+                    self.h264_rtsp(webcam)
                 elif webcam.streaming_params['mode'] == 'h264_copy':
                     self.h264_copy(webcam)
                 elif webcam.streaming_params['mode'] == 'h264_device':
@@ -244,14 +244,11 @@ class WebcamStreamer:
                 webcam.runtime['stream_id'] = cur_stream_id
                 cur_stream_id += 1
 
-            if webcam.streaming_params['mode'] in ('h264_copy', 'h264_transcode', 'h264_device'):
+            if webcam.streaming_params['mode'] in ('h264_copy', 'h264_transcode', 'h264_device', 'h264_rtsp'):
                  webcam.runtime['videoport'] = cur_port_num
                  cur_port_num += 1
                  webcam.runtime['videortcpport'] = cur_port_num
                  cur_port_num += 1
-                 webcam.runtime['dataport'] = cur_port_num
-                 cur_port_num += 1
-            elif webcam.streaming_params['mode'] == 'h264_rtsp':
                  webcam.runtime['dataport'] = cur_port_num
                  cur_port_num += 1
             elif webcam.streaming_params['mode'] == 'mjpeg_webrtc':
@@ -266,6 +263,23 @@ class WebcamStreamer:
                 return True
 
         return False
+
+
+    def h264_rtsp(self, webcam):
+        try:
+            stream_url = webcam.stream_url
+            if not stream_url:
+                raise Exception('stream_url not configured. Unable to stream the webcam.')
+
+            # Pull RTSP over TCP and copy the H.264 stream with <=1200B RTP packets so WebRTC stays safely under 1500B MTU
+            self.start_ffmpeg(
+                webcam.runtime['videoport'],
+                f'-rtsp_transport tcp -fflags nobuffer -flags low_delay -i {stream_url} -c:v copy',
+                retry_after_quit=True,
+                pkt_size=1200,
+            )
+        except Exception:
+            self.report_streaming_failure()
 
 
     def h264_copy(self, webcam):
@@ -330,8 +344,8 @@ class WebcamStreamer:
 
 
     @backoff.on_exception(backoff.expo, Exception, base=3, jitter=None, max_tries=5) # Apparently crowsnest would return invalid mjpeg data right after start and hence throw off ffmpeg. We should retry in this case
-    def start_ffmpeg(self, rtp_port, ffmpeg_args, retry_after_quit=False):
-        ffmpeg_cmd = '{ffmpeg} -loglevel error {ffmpeg_args} -an -f rtp rtp://{janus_server}:{rtp_port}?pkt_size=1300'.format(ffmpeg=FFMPEG, ffmpeg_args=ffmpeg_args, janus_server=JANUS_SERVER, rtp_port=rtp_port)
+    def start_ffmpeg(self, rtp_port, ffmpeg_args, retry_after_quit=False, pkt_size=1300):
+        ffmpeg_cmd = '{ffmpeg} -loglevel error {ffmpeg_args} -an -f rtp rtp://{janus_server}:{rtp_port}?pkt_size={pkt_size}'.format(ffmpeg=FFMPEG, ffmpeg_args=ffmpeg_args, janus_server=JANUS_SERVER, rtp_port=rtp_port, pkt_size=pkt_size)
 
         _logger.debug('Popen: {}'.format(redact_text(ffmpeg_cmd)))
         FNULL = open(os.devnull, 'w')
