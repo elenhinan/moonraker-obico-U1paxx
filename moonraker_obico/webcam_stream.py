@@ -198,7 +198,11 @@ class WebcamStreamer:
         self.send_streaming_failed_event()
 
     def find_streaming_params(self):
-        ffmpeg_h264_encoder = find_ffmpeg_h264_encoder()
+        needs_ffmpeg_encoder = any(
+            not webcam.stream_mode or webcam.stream_mode == 'h264_transcode'
+            for webcam in self.webcams
+        )
+        ffmpeg_h264_encoder = find_ffmpeg_h264_encoder() if needs_ffmpeg_encoder else None
         webcams = []
         for webcam in self.webcams:
             stream_mode = webcam.stream_mode if webcam.stream_mode else ('h264_transcode' if ffmpeg_h264_encoder else 'mjpeg_webrtc')
@@ -245,6 +249,9 @@ class WebcamStreamer:
                  cur_port_num += 1
                  webcam.runtime['videortcpport'] = cur_port_num
                  cur_port_num += 1
+                 webcam.runtime['dataport'] = cur_port_num
+                 cur_port_num += 1
+            elif webcam.streaming_params['mode'] == 'h264_rtsp':
                  webcam.runtime['dataport'] = cur_port_num
                  cur_port_num += 1
             elif webcam.streaming_params['mode'] == 'mjpeg_webrtc':
