@@ -190,6 +190,8 @@ class App(object):
             self.moonrakerconn.close()
         if self.client_conn:
             self.client_conn.close()
+        if self.webcam_streamer:
+            self.webcam_streamer.shutdown()
 
     # TODO: This doesn't work as ffmpeg seems to mess with signals as well
     def interrupted(self, signum, frame):

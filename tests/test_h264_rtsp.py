@@ -181,6 +181,24 @@ class H264RtspTests(unittest.TestCase):
 
             self.assertIn('min_nack_queue = 500', contents)
 
+    def test_kill_all_ffmpeg_kills_orphaned_pid_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pid_file = os.path.join(temp_dir, 'obico-ffmpeg-17732.pid')
+            with open(pid_file, 'w') as f:
+                f.write('9159\n')
+
+            app_model = SimpleNamespace(printer_state=None, config=None, linked_printer={'is_pro': True})
+            streamer = WebcamStreamer(None, None, None, app_model, None)
+
+            with patch('moonraker_obico.webcam_stream.glob.glob', return_value=[pid_file]), \
+                    patch.object(streamer, 'ffmpeg_pid_file_path', return_value=pid_file), \
+                    patch('moonraker_obico.webcam_stream.subprocess.run') as mock_run:
+                streamer.kill_all_ffmpeg_if_running()
+
+            mock_run.assert_called_once()
+            self.assertEqual(['kill', '9159'], mock_run.call_args[0][0])
+            self.assertFalse(os.path.exists(pid_file))
+
 
 if __name__ == '__main__':
     unittest.main()

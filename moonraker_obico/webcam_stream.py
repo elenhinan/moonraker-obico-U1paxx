@@ -1,6 +1,7 @@
 import io
 import re
 import os
+import glob
 import logging
 import subprocess
 import time
@@ -345,6 +346,7 @@ class WebcamStreamer:
 
     @backoff.on_exception(backoff.expo, Exception, base=3, jitter=None, max_tries=5) # Apparently crowsnest would return invalid mjpeg data right after start and hence throw off ffmpeg. We should retry in this case
     def start_ffmpeg(self, rtp_port, ffmpeg_args, retry_after_quit=False, pkt_size=1300):
+        self.kill_ffmpeg_if_running(rtp_port)
         ffmpeg_cmd = '{ffmpeg} -loglevel error {ffmpeg_args} -an -f rtp rtp://{janus_server}:{rtp_port}?pkt_size={pkt_size}'.format(ffmpeg=FFMPEG, ffmpeg_args=ffmpeg_args, janus_server=JANUS_SERVER, rtp_port=rtp_port, pkt_size=pkt_size)
 
         _logger.debug('Popen: {}'.format(redact_text(ffmpeg_cmd)))
@@ -384,6 +386,8 @@ class WebcamStreamer:
                         ring_buffer = deque(maxlen=50)
                         _logger.debug('Popen: {}'.format(redact_text(ffmpeg_cmd)))
                         ffmpeg_proc = subprocess.Popen(ffmpeg_cmd.split(' '), stdin=subprocess.PIPE, stdout=FNULL, stderr=subprocess.PIPE)
+                        with open(self.ffmpeg_pid_file_path(rtp_port), 'w') as pid_file:
+                            pid_file.write(str(ffmpeg_proc.pid))
                     else:
                         self.sentry.captureMessage('ffmpeg exited un-expectedly. Exit code: {}'.format(returncode))
                         return
@@ -441,7 +445,13 @@ class WebcamStreamer:
         return '/tmp/obico-ffmpeg-{rtp_port}.pid'.format(rtp_port=rtp_port)
 
     def kill_all_ffmpeg_if_running(self):
-        for rtc_port in self.ffmpeg_out_rtp_ports:
+        ports = set(self.ffmpeg_out_rtp_ports)
+        for pid_path in glob.glob('/tmp/obico-ffmpeg-*.pid'):
+            match = re.search(r'obico-ffmpeg-(\d+)\.pid$', pid_path)
+            if match:
+                ports.add(match.group(1))
+
+        for rtc_port in ports:
             self.kill_ffmpeg_if_running(rtc_port)
 
         self.ffmpeg_out_rtp_ports = set()
@@ -449,8 +459,15 @@ class WebcamStreamer:
     def kill_ffmpeg_if_running(self, rtc_port):
         # It is possible that some orphaned ffmpeg process is running (maybe previous python process was killed -9?).
         # Ensure all ffmpeg processes are killed
-        with open(self.ffmpeg_pid_file_path(rtc_port), 'r') as pid_file:
-            subprocess.run(['kill', pid_file.read()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        pid_path = self.ffmpeg_pid_file_path(rtc_port)
+        try:
+            with open(pid_path, 'r') as pid_file:
+                pid = pid_file.read().strip()
+            if pid:
+                subprocess.run(['kill', pid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            os.remove(pid_path)
+        except FileNotFoundError:
+            pass
 
     def shutdown_subprocesses(self):
         if self.janus:
