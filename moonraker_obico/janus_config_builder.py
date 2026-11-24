@@ -139,6 +139,9 @@ nat: {{
         ice_ignore_list = "vmnet"
         ignore_unreachable_ice_server = true
 }
+media: {
+        min_nack_queue = 500
+}
 plugins: {
         disable = "libjanus_audiobridge.so,libjanus_echotest.so,libjanus_nosip.so,libjanus_sip.so,libjanus_textroom.so,libjanus_videoroom.so,libjanus_duktape.so,libjanus_lua.so,libjanus_recordplay.so,libjanus_videocall.so,libjanus_voicemail.so"
 }

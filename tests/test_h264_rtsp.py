@@ -158,6 +158,17 @@ class H264RtspTests(unittest.TestCase):
         self.assertEqual('u1.buildroot.2024.64-bit', chosen)
         self.assertTrue(os.path.isdir(precompiled_dir))
 
+    def test_build_janus_jcfg_sets_min_nack_queue(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(janus_config_builder, 'RUNTIME_JANUS_ETC_DIR', temp_dir), \
+                    patch.object(janus_config_builder, 'find_system_janus_paths', return_value=('/usr/bin/janus', '/usr/lib')):
+                janus_config_builder.build_janus_jcfg('test-token')
+
+            with open(os.path.join(temp_dir, 'janus.jcfg')) as f:
+                contents = f.read()
+
+            self.assertIn('min_nack_queue = 500', contents)
+
 
 if __name__ == '__main__':
     unittest.main()
