@@ -64,6 +64,8 @@ board_id() {
             echo "rpi"
         elif grep -q -i -e "Makerbase" -e "roc-rk3328-cc" $model_file; then # Somehow some mks boards have 'Firefly roc-rk3328-cc' in /sys/firmware/devicetree/base/model
 	    echo "mks"
+        elif grep -q -i -e "rk3562" "$model_file" && [ -f /etc/os-release ] && grep -q -i -e "snapmaker" /etc/os-release; then
+            echo "u1"
         else
             echo "NA"
         fi

@@ -2,9 +2,9 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import mock_open, patch
 
-from moonraker_obico import janus_config_builder
+from moonraker_obico import janus_config_builder, utils
 from moonraker_obico.config import Config
 from moonraker_obico.webcam_stream import JANUS_ADMIN_WS_PORT, WebcamStreamer
 
@@ -101,6 +101,62 @@ class H264RtspTests(unittest.TestCase):
                 contents = f.read()
 
             self.assertIn('url = "rtsp://127.0.0.1:8554/stream.h264"', contents)
+
+    def test_board_id_detects_snapmaker_u1(self):
+        fake_files = {
+            '/sys/firmware/devicetree/base/model': 'Rockchip RK3562 EVB2 DDR4 V10 Board\x00',
+            '/etc/os-release': 'ID=buildroot\nVERSION_ID=2024.02\nRK_BUILD_INFO="snapmaker@build-srv - rockchip_rk3562_snapmaker_lava"\n',
+        }
+
+        def fake_isfile(path):
+            return path in fake_files
+
+        def fake_open(path, *args, **kwargs):
+            return mock_open(read_data=fake_files[path])()
+
+        with patch('moonraker_obico.utils.os.path.isfile', side_effect=fake_isfile), \
+                patch('builtins.open', side_effect=fake_open):
+            self.assertEqual('u1', utils.board_id())
+
+    def test_board_id_ignores_non_snapmaker_rk3562(self):
+        fake_files = {
+            '/sys/firmware/devicetree/base/model': 'Rockchip RK3562 EVB2 DDR4 V10 Board\x00',
+            '/etc/os-release': 'ID=debian\nVERSION_ID=12\n',
+        }
+
+        def fake_isfile(path):
+            return path in fake_files
+
+        def fake_open(path, *args, **kwargs):
+            return mock_open(read_data=fake_files[path])()
+
+        with patch('moonraker_obico.utils.os.path.isfile', side_effect=fake_isfile), \
+                patch('builtins.open', side_effect=fake_open):
+            self.assertEqual('NA', utils.board_id())
+
+    def test_find_precompiled_dir_resolves_u1_variant(self):
+        with patch.object(janus_config_builder, 'board_id', return_value='u1'), \
+                patch.object(janus_config_builder, 'distro_id', 'buildroot'), \
+                patch.object(janus_config_builder.distro, 'major_version', return_value='2024'), \
+                patch.object(janus_config_builder, 'os_bit', return_value='64-bit'):
+            precompiled_dir, requested, chosen = janus_config_builder.find_precompiled_dir()
+
+        self.assertEqual('u1.buildroot.2024.64-bit', requested)
+        self.assertEqual('u1.buildroot.2024.64-bit', chosen)
+        self.assertTrue(os.path.isfile(os.path.join(precompiled_dir, 'bin', 'janus')))
+        self.assertTrue(os.path.isfile(os.path.join(precompiled_dir, 'lib', 'libgnutls.so.30')))
+        self.assertTrue(os.path.isfile(os.path.join(precompiled_dir, 'lib', 'libogg.so.0')))
+
+    def test_find_precompiled_dir_u1_falls_back_for_newer_buildroot(self):
+        with patch.object(janus_config_builder, 'board_id', return_value='u1'), \
+                patch.object(janus_config_builder, 'distro_id', 'buildroot'), \
+                patch.object(janus_config_builder.distro, 'major_version', return_value='2026'), \
+                patch.object(janus_config_builder, 'os_bit', return_value='64-bit'):
+            precompiled_dir, requested, chosen = janus_config_builder.find_precompiled_dir()
+
+        self.assertEqual('u1.buildroot.2026.64-bit', requested)
+        self.assertEqual('u1.buildroot.2024.64-bit', chosen)
+        self.assertTrue(os.path.isdir(precompiled_dir))
 
 
 if __name__ == '__main__':

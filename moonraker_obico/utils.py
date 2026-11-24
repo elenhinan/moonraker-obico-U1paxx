@@ -340,6 +340,12 @@ def board_id():
                 return "rpi"
             elif "makerbase" in data.lower() or "roc-rk3328-cc" in data:
                 return "mks"
+            elif "rk3562" in data.lower():
+                os_release_file = "/etc/os-release"
+                if os.path.isfile(os_release_file):
+                    with open(os_release_file, 'r') as os_file:
+                        if "snapmaker" in os_file.read().lower():
+                            return "u1"
     return "NA"
 
 
